@@ -1002,6 +1002,33 @@
     const dynamicAnimObjects = [];
     const collidableObstacles = [];
 
+    function formatHeadingText(deg) {
+      deg = ((Math.round(deg) % 360) + 360) % 360;
+      let dir = '正前/北';
+      if (deg > 15 && deg < 75) dir = '東北';
+      else if (deg >= 75 && deg <= 105) dir = '正右/東';
+      else if (deg > 105 && deg < 165) dir = '東南';
+      else if (deg >= 165 && deg <= 195) dir = '正後/南';
+      else if (deg > 195 && deg < 255) dir = '西南';
+      else if (deg >= 255 && deg <= 285) dir = '正左/西';
+      else if (deg > 285 && deg < 345) dir = '西北';
+      return `${deg}° (${dir})`;
+    }
+
+    function updateHeadingDisplay(deg) {
+      const headingText = formatHeadingText(deg);
+      ['heading-val-text', 'quick-heading-display'].forEach(id => {
+        const display = document.getElementById(id);
+        if (display) display.textContent = headingText;
+      });
+      ['slider-heading', 'quick-slider-heading'].forEach(id => {
+        const slider = document.getElementById(id);
+        if (slider) slider.value = deg;
+      });
+      const compassIcon = document.getElementById('compass-needle-icon');
+      if (compassIcon) compassIcon.style.transform = `rotate(${deg}deg)`;
+    }
+
     function registerObstacle(object3D, radius, height, name = '障礙物') {
       collidableObstacles.push({
         obj: object3D,
@@ -1009,7 +1036,8 @@
         radius: radius,
         height: height,
         name: name,
-        wobble: 0
+        wobble: 0,
+        lastHitTime: -Infinity
       });
     }
 
@@ -1386,25 +1414,53 @@
       pGeo.attributes.position.needsUpdate = true;
     }
 
-    function checkObstacleCollisions() {
+    function checkObstacleCollisions(previousPos) {
       if (!State.isFlying || State.isLanded) return;
       const planePos = State.pos;
+      const startPos = previousPos || planePos;
+      const pathX = planePos.x - startPos.x;
+      const pathY = planePos.y - startPos.y;
+      const pathZ = planePos.z - startPos.z;
+      const pathLengthSq = pathX * pathX + pathZ * pathZ;
 
       for (let i = 0; i < collidableObstacles.length; i++) {
         const obs = collidableObstacles[i];
-        const dx = planePos.x - obs.pos.x;
-        const dz = planePos.z - obs.pos.z;
+        if (State.flightTime - obs.lastHitTime < 0.4) continue;
+
+        const closestT = pathLengthSq > 0
+          ? THREE.MathUtils.clamp(((obs.pos.x - startPos.x) * pathX + (obs.pos.z - startPos.z) * pathZ) / pathLengthSq, 0, 1)
+          : 1;
+        const closestX = startPos.x + pathX * closestT;
+        const closestY = startPos.y + pathY * closestT;
+        const closestZ = startPos.z + pathZ * closestT;
+        const dx = closestX - obs.pos.x;
+        const dz = closestZ - obs.pos.z;
         const distHoriz = Math.hypot(dx, dz);
 
-        if (distHoriz < obs.radius + 0.35 && planePos.y < obs.height + 0.2) {
+        if (distHoriz < obs.radius + 0.35 && closestY < obs.height + 0.2 && closestY > -0.35) {
           // 發生撞擊！
           triggerImpactFX(planePos);
+          obs.lastHitTime = State.flightTime;
+
+          let normalX = dx;
+          let normalZ = dz;
+          let normalLength = Math.hypot(normalX, normalZ);
+          if (normalLength < 0.001) {
+            normalX = -State.vel.x;
+            normalZ = -State.vel.z;
+            normalLength = Math.hypot(normalX, normalZ) || 1;
+          }
+          normalX /= normalLength;
+          normalZ /= normalLength;
 
           // 物理彈開反應
-          State.vel.x = -State.vel.x * 0.45 + (dx / (distHoriz || 1)) * 3.5;
-          State.vel.z = -State.vel.z * 0.25;
+          State.vel.x = -State.vel.x * 0.45 + normalX * 3.5;
+          State.vel.z = -State.vel.z * 0.25 + normalZ * 3.5;
           State.vel.y = -Math.abs(State.vel.y) - 1.5;
-          State.glideSpeed *= 0.35;
+          State.glideSpeed = Math.max(3.2, Math.hypot(State.vel.x, State.vel.z));
+          State.yawAngle = Math.atan2(-State.vel.x, -State.vel.z);
+          State.launchHeading = ((-THREE.MathUtils.radToDeg(State.yawAngle) % 360) + 360) % 360;
+          updateHeadingDisplay(State.launchHeading);
 
           // 物體受擊晃動反饋 (Wobble)
           obs.wobble = 0.35;
@@ -1493,6 +1549,7 @@
       State.bodyPitchAngle = 0;
       State.glideSpeed = State.launchSpeed;
       State.vel.set(0, 0, 0);
+      collidableObstacles.forEach(obstacle => { obstacle.lastHitTime = -Infinity; });
       State.pos.x = 0;
       State.pos.z = 0;
       State.launchHeading = 0;
@@ -1548,6 +1605,7 @@
       if (!State.isFlying || State.isLanded) return;
       const step = Math.min(Math.max(dt, 0.001), 0.04);
       State.flightTime += step;
+      const previousPos = State.pos.clone();
 
       // 1. 月球純真空拋體彈道 (Ballistic Trajectory)
       if (State.biome === 'moon') {
@@ -1564,6 +1622,7 @@
           State.pos.y = floorH;
           touchdown();
         }
+        checkObstacleCollisions(previousPos);
         return;
       }
 
@@ -1619,7 +1678,7 @@
       }
 
       // 障礙物碰撞檢測
-      checkObstacleCollisions();
+      checkObstacleCollisions(previousPos);
     }
 
     function updateTelemetryHUD() {
@@ -1841,19 +1900,6 @@
       const headingSlider = document.getElementById('slider-heading');
       const quickHeadingSlider = document.getElementById('quick-slider-heading');
 
-      function formatHeadingText(deg) {
-        deg = ((Math.round(deg) % 360) + 360) % 360;
-        let dir = '正前/北';
-        if (deg > 15 && deg < 75) dir = '東北';
-        else if (deg >= 75 && deg <= 105) dir = '正右/東';
-        else if (deg > 105 && deg < 165) dir = '東南';
-        else if (deg >= 165 && deg <= 195) dir = '正後/南';
-        else if (deg > 195 && deg < 255) dir = '西南';
-        else if (deg >= 255 && deg <= 285) dir = '正左/西';
-        else if (deg > 285 && deg < 345) dir = '西北';
-        return `${deg}° (${dir})`;
-      }
-
       function setLaunchHeading(deg) {
         if (State.isFlying) return;
         deg = ((deg % 360) + 360) % 360;
@@ -1862,20 +1908,7 @@
         // 歐拉 Y 軸旋轉：逆時針旋轉為正角度，因此向右(順時針)旋轉 yawAngle 為 -deg
         State.yawAngle = THREE.MathUtils.degToRad(-deg);
 
-        const headingText = formatHeadingText(deg);
-        const headingValText = document.getElementById('heading-val-text');
-        if (headingValText) headingValText.textContent = headingText;
-        const quickDisplay = document.getElementById('quick-heading-display');
-        if (quickDisplay) quickDisplay.textContent = headingText;
-
-        if (headingSlider) headingSlider.value = deg;
-        if (quickHeadingSlider) quickHeadingSlider.value = deg;
-
-        // 旋轉右下角 HUD 羅盤針圖示
-        const compassIcon = document.getElementById('compass-needle-icon');
-        if (compassIcon) {
-          compassIcon.style.transform = `rotate(${deg}deg)`;
-        }
+        updateHeadingDisplay(deg);
 
         launcherGroup.rotation.y = State.yawAngle;
         updateAirplaneClearance();
