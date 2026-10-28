@@ -1419,6 +1419,17 @@
     /* ==========================================================================
        9. 發射控制與超平穩物理推進引擎 (消除沉頭與海豚跳抖動)
        ========================================================================== */
+    function setHeadingControlsDisabled(disabled) {
+      [
+        'slider-heading', 'quick-slider-heading',
+        'btn-head-north', 'btn-head-east', 'btn-head-south', 'btn-head-west',
+        'quick-aim-sub45', 'quick-aim-sub15', 'quick-aim-center', 'quick-aim-add15', 'quick-aim-add45'
+      ].forEach(id => {
+        const control = document.getElementById(id);
+        if (control) control.disabled = disabled;
+      });
+    }
+
     function launchAirplane() {
       if (State.isFlying) return;
       AudioEngine.playLaunchWhoosh();
@@ -1436,6 +1447,7 @@
       }
 
       State.isFlying = true;
+      setHeadingControlsDisabled(true);
       State.isLanded = false;
       State.flightTime = 0;
       State.flightDistance = 0;
@@ -1446,7 +1458,7 @@
         switchCamMode('chase');
       }
 
-      // 初始速度與航向設置 (嚴格朝向 -Z 前進)
+      // 初始速度與航向設置：飛機模型的機頭朝本地 -Z。
       let initialV = State.launchSpeed;
       if (State.enableLauncher && State.launcherType === 'slingshot') {
         initialV += State.elasticTension * 6.0;
@@ -1460,7 +1472,7 @@
       // 速度向量分解
       const forwardH = Math.cos(pitchRad) * initialV;
       State.vel.set(
-        Math.sin(State.yawAngle) * forwardH,
+        -Math.sin(State.yawAngle) * forwardH,
         Math.sin(pitchRad) * initialV,
         -Math.cos(State.yawAngle) * forwardH
       );
@@ -1477,12 +1489,34 @@
       State.flightTime = 0;
       State.flightDistance = 0;
       State.rollAngle = 0;
+      State.flightSlope = 0;
+      State.bodyPitchAngle = 0;
+      State.glideSpeed = State.launchSpeed;
+      State.vel.set(0, 0, 0);
+      State.pos.x = 0;
+      State.pos.z = 0;
+      State.launchHeading = 0;
+      State.yawAngle = 0;
+
+      ['slider-heading', 'quick-slider-heading'].forEach(id => {
+        const slider = document.getElementById(id);
+        if (slider) slider.value = 0;
+      });
+      ['heading-val-text', 'quick-heading-display'].forEach(id => {
+        const display = document.getElementById(id);
+        if (display) display.textContent = '0° (正前/北)';
+      });
+      const compassIcon = document.getElementById('compass-needle-icon');
+      if (compassIcon) compassIcon.style.transform = 'rotate(0deg)';
 
       // 重新顯示瞄準儀
       const aimHud = document.getElementById('aiming-hud');
       if (aimHud) aimHud.style.opacity = '1';
 
+      setHeadingControlsDisabled(false);
+
       updateAirplaneClearance();
+      launcherGroup.rotation.y = State.yawAngle;
       updateAimLine();
 
       document.getElementById('hud-flight-state').textContent = '待命';
@@ -1498,6 +1532,7 @@
       State.isFlying = false;
       State.isLanded = true;
       State.vel.set(0, 0, 0);
+      setHeadingControlsDisabled(false);
       AudioEngine.playTouchdown();
 
       // 貼平地面高度
@@ -1558,7 +1593,7 @@
 
       // 速度向量更新
       const forwardH = Math.cos(State.flightSlope) * State.glideSpeed;
-      State.vel.x = Math.sin(State.yawAngle) * forwardH;
+      State.vel.x = -Math.sin(State.yawAngle) * forwardH;
       State.vel.z = -Math.cos(State.yawAngle) * forwardH;
       State.vel.y = Math.sin(State.flightSlope) * State.glideSpeed;
 
@@ -1634,7 +1669,7 @@
         // 動態追逐視角：平滑緊跟在機身後上方
         const behindDist = 3.6;
         const heightOffset = 1.35;
-        const camX = State.pos.x - Math.sin(State.yawAngle) * behindDist;
+        const camX = State.pos.x + Math.sin(State.yawAngle) * behindDist;
         const camZ = State.pos.z + Math.cos(State.yawAngle) * behindDist;
         const camY = Math.max(0.4, State.pos.y + heightOffset);
 
@@ -1645,7 +1680,7 @@
         // 側面平行觀測視角
         const sideDist = 4.8;
         const camX = State.pos.x + Math.cos(State.yawAngle) * sideDist;
-        const camZ = State.pos.z + Math.sin(State.yawAngle) * sideDist;
+        const camZ = State.pos.z - Math.sin(State.yawAngle) * sideDist;
         const camY = Math.max(0.5, State.pos.y + 0.6);
 
         camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.12);
@@ -1820,6 +1855,7 @@
       }
 
       function setLaunchHeading(deg) {
+        if (State.isFlying) return;
         deg = ((deg % 360) + 360) % 360;
         State.launchHeading = deg;
         // 在 Three.js 座標系中，0° 朝 -Z(正前)，90° 朝 +X(右)，180° 朝 +Z(後)，270° 朝 -X(左)
@@ -1845,6 +1881,9 @@
         updateAirplaneClearance();
         updateAimLine();
       }
+
+      headingSlider?.addEventListener('input', e => setLaunchHeading(Number(e.target.value)));
+      quickHeadingSlider?.addEventListener('input', e => setLaunchHeading(Number(e.target.value)));
 
       // 四方位與步進瞄準按鈕
       document.getElementById('btn-head-north')?.addEventListener('click', () => setLaunchHeading(0));
