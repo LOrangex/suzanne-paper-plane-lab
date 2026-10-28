@@ -13,20 +13,36 @@
 
 ## 本機執行
 
-需要 Node.js 20 或更新版本，以及 pnpm。
+需要 Node.js 20 或更新版本，以及 pnpm。先在終端機切換到專案資料夾，確認工具已安裝：
 
 ```bash
-pnpm install
+node --version
+pnpm --version
+```
+
+如果尚未安裝 pnpm，可使用 npm 安裝：
+
+```bash
+npm install --global pnpm
+```
+
+接著安裝專案依賴並啟動本機開發伺服器：
+
+```bash
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-開啟終端機顯示的本機網址。建置網站可執行：
+在瀏覽器開啟終端機顯示的網址，通常是 `http://localhost:5173/`。開發伺服器會在修改檔案後自動更新頁面；按 `Ctrl+C` 可停止伺服器。
+
+若要檢查正式版建置，可執行：
 
 ```bash
 pnpm build
+pnpm preview
 ```
 
-建置結果會輸出至 `dist/`。本專案使用 Tailwind CSS、Three.js、OrbitControls、GLTFLoader、OBJLoader 與 Lucide 的 CDN，因此使用時需要網路連線。
+`pnpm build` 會將網站輸出至 `dist/`；`pnpm preview` 可在本機預覽建置結果。頁面使用 Tailwind CSS、Three.js、OrbitControls、GLTFLoader、OBJLoader 與 Lucide 的 CDN，開發和使用時都需要網路連線。
 
 ## 授權
 
