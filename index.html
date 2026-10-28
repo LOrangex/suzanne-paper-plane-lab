@@ -1,13 +1,2020 @@
-<!doctype html>
-<html lang="zh-Hant">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#eef5f1" />
-    <title>Suzanne 飛行實驗室</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D 紙飛機物理模擬實驗室</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- OrbitControls CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <!-- GLTFLoader & OBJLoader CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <style>
+    body, html {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      user-select: none;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: #030712;
+      color: #f3f4f6;
+    }
+    #webgl-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      display: block;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 5px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(56, 189, 248, 0.4);
+      border-radius: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(56, 189, 248, 0.7);
+    }
+    .glass-panel {
+      background: rgba(11, 19, 43, 0.78);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(56, 189, 248, 0.18);
+    }
+    input[type=range] {
+      -webkit-appearance: none;
+      background: #1e293b;
+      height: 6px;
+      border-radius: 9999px;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #38bdf8;
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.8);
+      transition: transform 0.1s ease;
+    }
+    input[type=range]::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+  </style>
+</head>
+<body class="w-full h-full relative">
+
+  <!-- 3D 渲染底層 Canvas -->
+  <canvas id="webgl-canvas"></canvas>
+
+  <!-- 頂部快速狀態列與視角快捷列 -->
+  <header class="absolute top-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between pointer-events-none gap-3">
+    <div class="glass-panel px-4 py-2.5 rounded-2xl flex items-center gap-3 pointer-events-auto shadow-2xl border border-sky-500/30">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-600 to-cyan-400 flex items-center justify-center text-white shadow-lg shadow-sky-500/30">
+        <i data-lucide="send" class="w-5 h-5"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-sm font-bold tracking-wide text-white">3D 紙飛機物理模擬實驗室</h1>
+          <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-mono border border-emerald-500/30">AERO V5.0</span>
+        </div>
+        <p id="status-indicator" class="text-xs text-slate-400">停泊發射台上 | 待命發射</p>
+      </div>
+    </div>
+
+    <!-- 視角切換器與主要動作按鈕 -->
+    <div class="flex items-center gap-2 pointer-events-auto">
+      <div class="glass-panel p-1 rounded-2xl flex items-center gap-1 shadow-2xl">
+        <button id="btn-cam-chase" class="px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-sky-600/80 hover:bg-sky-500 transition-all flex items-center gap-1.5 shadow">
+          <i data-lucide="video" class="w-3.5 h-3.5"></i> 動態跟隨
+        </button>
+        <button id="btn-cam-side" class="px-3 py-1.5 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all flex items-center gap-1.5">
+          <i data-lucide="scan" class="w-3.5 h-3.5"></i> 側面觀測
+        </button>
+        <button id="btn-cam-orbit" class="px-3 py-1.5 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/80 transition-all flex items-center gap-1.5">
+          <i data-lucide="orbit" class="w-3.5 h-3.5"></i> 自由環繞
+        </button>
+      </div>
+
+      <button id="btn-launch-top" class="px-5 py-2.5 rounded-2xl text-xs font-bold text-white bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 shadow-xl shadow-emerald-500/25 transition-all flex items-center gap-2">
+        <i data-lucide="navigation-2" class="w-4 h-4"></i> 發射紙飛機
+      </button>
+      <button id="btn-reset-top" class="p-2.5 rounded-2xl text-slate-300 hover:text-white glass-panel hover:bg-slate-800/80 transition-all shadow-xl" title="重置飛機">
+        <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- 左側控制核心側邊欄 -->
+  <aside class="absolute top-20 left-4 bottom-4 w-80 sm:w-96 z-20 pointer-events-auto flex flex-col glass-panel rounded-3xl overflow-hidden shadow-2xl border border-sky-500/20">
+    <!-- 導航分頁列 -->
+    <div class="flex items-center justify-between border-b border-slate-800/80 p-2 bg-slate-950/40 text-xs">
+      <button data-tab="tab-plane" class="tab-btn flex-1 py-2 px-1 text-center font-semibold text-sky-400 border-b-2 border-sky-400 transition-all flex items-center justify-center gap-1.5">
+        <i data-lucide="paperclip" class="w-3.5 h-3.5"></i> 機身調校
+      </button>
+      <button data-tab="tab-launcher" class="tab-btn flex-1 py-2 px-1 text-center font-semibold text-slate-400 hover:text-slate-200 transition-all flex items-center justify-center gap-1.5">
+        <i data-lucide="zap" class="w-3.5 h-3.5"></i> 發射機構
+      </button>
+      <button data-tab="tab-biome" class="tab-btn flex-1 py-2 px-1 text-center font-semibold text-slate-400 hover:text-slate-200 transition-all flex items-center justify-center gap-1.5">
+        <i data-lucide="mountain" class="w-3.5 h-3.5"></i> 生態環境
+      </button>
+      <button data-tab="tab-import" class="tab-btn flex-1 py-2 px-1 text-center font-semibold text-slate-400 hover:text-slate-200 transition-all flex items-center justify-center gap-1.5">
+        <i data-lucide="folder-down" class="w-3.5 h-3.5"></i> 匯入模型
+      </button>
+    </div>
+
+    <!-- 分頁內容容器 -->
+    <div class="flex-1 overflow-y-auto custom-scroll p-4 space-y-5">
+      <!-- 1. 機身調校分頁 -->
+      <div id="tab-plane" class="tab-content space-y-4">
+        <!-- 機型切換 -->
+        <div>
+          <div class="flex justify-between items-center mb-2">
+            <label class="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+              <i data-lucide="file-text" class="w-3.5 h-3.5 text-sky-400"></i> 紙飛機折紙型號
+            </label>
+            <button id="btn-focus-full" class="text-[11px] text-sky-400 hover:underline flex items-center gap-1">
+              <i data-lucide="zoom-in" class="w-3 h-3"></i> 全貌特寫
+            </button>
+          </div>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <button class="plane-type-btn p-2.5 rounded-xl border border-sky-500/50 bg-sky-950/40 text-left font-medium text-sky-300 transition-all" data-type="dart">
+              <div class="font-bold text-white">經典飛鏢號</div>
+              <div class="text-[10px] text-slate-400">Classic Dart · 高速破空</div>
+            </button>
+            <button class="plane-type-btn p-2.5 rounded-xl border border-slate-800 bg-slate-900/60 text-left font-medium text-slate-300 hover:border-slate-700 transition-all" data-type="suzanne">
+              <div class="font-bold text-white">蘇珊滑翔翼</div>
+              <div class="text-[10px] text-slate-400">Suzanne · 寬翼長留空</div>
+            </button>
+            <button class="plane-type-btn p-2.5 rounded-xl border border-slate-800 bg-slate-900/60 text-left font-medium text-slate-300 hover:border-slate-700 transition-all" data-type="falcon">
+              <div class="font-bold text-white">獵鷹後掠型</div>
+              <div class="text-[10px] text-slate-400">Falcon · 穿透防側滑</div>
+            </button>
+            <button class="plane-type-btn p-2.5 rounded-xl border border-slate-800 bg-slate-900/60 text-left font-medium text-slate-300 hover:border-slate-700 transition-all" data-type="shuttle">
+              <div class="font-bold text-white">太空梭型</div>
+              <div class="text-[10px] text-slate-400">Shuttle · 巨大阻力減速</div>
+            </button>
+          </div>
+        </div>
+
+        <!-- 機首金屬迴紋針 -->
+        <div class="p-3 rounded-2xl bg-slate-950/40 border border-slate-800/80 space-y-2">
+          <div class="flex justify-between items-center text-xs">
+            <span class="font-medium text-amber-300 flex items-center gap-1.5">
+              <i data-lucide="paperclip" class="w-3.5 h-3.5"></i> 機首配重迴紋針
+            </span>
+            <button id="btn-focus-nose" class="text-[11px] text-sky-400 hover:underline flex items-center gap-1">
+              <i data-lucide="zoom-in" class="w-3 h-3"></i> 機首特寫
+            </button>
+          </div>
+          <div class="flex items-center justify-between gap-1 text-xs">
+            <button class="clip-btn flex-1 py-1 rounded-lg border border-amber-500/50 bg-amber-500/20 text-amber-300 font-bold" data-count="0">0枚</button>
+            <button class="clip-btn flex-1 py-1 rounded-lg border border-slate-800 bg-slate-900 text-slate-400" data-count="1">1枚</button>
+            <button class="clip-btn flex-1 py-1 rounded-lg border border-slate-800 bg-slate-900 text-slate-400" data-count="2">2枚</button>
+            <button class="clip-btn flex-1 py-1 rounded-lg border border-slate-800 bg-slate-900 text-slate-400" data-count="3">3枚</button>
+            <button class="clip-btn flex-1 py-1 rounded-lg border border-slate-800 bg-slate-900 text-slate-400" data-count="4">4枚</button>
+            <button class="clip-btn flex-1 py-1 rounded-lg border border-slate-800 bg-slate-900 text-slate-400" data-count="5">5枚</button>
+          </div>
+          <div class="flex justify-between text-[11px] text-slate-400">
+            <span>附加重量: <b id="clip-weight-text" class="text-amber-400">0.0g</b></span>
+            <span>靜態俯仰裕度: <b id="stability-margin-text" class="text-emerald-400">+11%</b></span>
+          </div>
+        </div>
+
+        <!-- 升降舵偏角 -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between items-center text-xs">
+            <span class="font-medium text-cyan-300 flex items-center gap-1.5">
+              <i data-lucide="sliders" class="w-3.5 h-3.5"></i> 升降尾舵偏角 (Elevons)
+            </span>
+            <div class="flex items-center gap-2">
+              <button id="btn-focus-tail" class="text-[11px] text-sky-400 hover:underline flex items-center gap-1">
+                <i data-lucide="zoom-in" class="w-3 h-3"></i> 尾舵特寫
+              </button>
+              <span id="elevon-val-text" class="font-mono text-cyan-400 font-bold">+2°</span>
+            </div>
+          </div>
+          <input type="range" id="slider-elevon" min="-10" max="15" step="1" value="2" class="w-full">
+          <p class="text-[10px] text-slate-500">微幅向上折起提供配平抬頭力矩；若拉到最大 +15° 將造成氣流嚴重分離失速阻滯！</p>
+        </div>
+
+        <!-- 機翼上反角 -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between items-center text-xs">
+            <span class="font-medium text-purple-300 flex items-center gap-1.5">
+              <i data-lucide="triangle" class="w-3.5 h-3.5"></i> 機翼上反角 (Dihedral)
+            </span>
+            <div class="flex items-center gap-2">
+              <button id="btn-focus-front" class="text-[11px] text-sky-400 hover:underline flex items-center gap-1">
+                <i data-lucide="zoom-in" class="w-3 h-3"></i> 正面特寫
+              </button>
+              <span id="dihedral-val-text" class="font-mono text-purple-400 font-bold">+6°</span>
+            </div>
+          </div>
+          <input type="range" id="slider-dihedral" min="-10" max="35" step="1" value="6" class="w-full">
+        </div>
+
+        <!-- 翼尖小翼折角 -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between items-center text-xs">
+            <span class="font-medium text-pink-300 flex items-center gap-1.5">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> 翼尖小翼 (Winglets)
+            </span>
+            <div class="flex items-center gap-2">
+              <button id="btn-focus-winglet" class="text-[11px] text-sky-400 hover:underline flex items-center gap-1">
+                <i data-lucide="zoom-in" class="w-3 h-3"></i> 翼尖特寫
+              </button>
+              <span id="winglet-val-text" class="font-mono text-pink-400 font-bold">25°</span>
+            </div>
+          </div>
+          <input type="range" id="slider-winglet" min="0" max="90" step="5" value="25" class="w-full">
+        </div>
+
+        <!-- 骨刀壓痕與粗糙度 -->
+        <div class="space-y-2 pt-2 border-t border-slate-800/80">
+          <div class="flex justify-between items-center text-xs">
+            <span class="font-medium text-yellow-300 flex items-center gap-1.5">
+              <i data-lucide="sparkle" class="w-3.5 h-3.5"></i> 骨刀壓痕與物理粗糙度
+            </span>
+            <button id="btn-crease-anim" class="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 text-[11px] font-semibold border border-amber-500/40 flex items-center gap-1 transition-all">
+              <i data-lucide="play" class="w-3 h-3"></i> 執行壓痕動畫
+            </button>
+          </div>
+          <div class="flex items-center justify-between text-xs text-slate-400">
+            <span>紙張 PBR 粗糙度</span>
+            <span id="roughness-val-text" class="font-mono text-yellow-400 font-bold">0.65</span>
+          </div>
+          <input type="range" id="slider-roughness" min="0.10" max="0.95" step="0.05" value="0.65" class="w-full">
+
+          <div class="flex items-center justify-between text-xs text-slate-400 pt-2">
+            <span>飛機 3D 顯示尺寸縮放</span>
+            <span id="scale-val-text" class="font-mono text-sky-400 font-bold">1.2x</span>
+          </div>
+          <input type="range" id="slider-scale" min="0.6" max="2.4" step="0.1" value="1.2" class="w-full">
+        </div>
+      </div>
+
+      <!-- 2. 發射機構分頁 -->
+      <div id="tab-launcher" class="tab-content space-y-4 hidden">
+        <!-- 發射機構開關 -->
+        <div class="flex items-center justify-between p-3 rounded-2xl bg-slate-950/40 border border-slate-800">
+          <div>
+            <div class="text-xs font-bold text-white">實體發射機構底座</div>
+            <div class="text-[10px] text-slate-400">關閉時切換至純手擲凌空模式</div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="toggle-launcher" checked class="sr-only peer">
+            <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-sky-500"></div>
+          </label>
+        </div>
+
+        <!-- 發射機構類型 -->
+        <div class="space-y-2">
+          <label class="text-xs font-semibold text-slate-300">發射裝置型態</label>
+          <div class="grid grid-cols-3 gap-2 text-xs">
+            <button class="launcher-type-btn p-2 rounded-xl border border-sky-500 bg-sky-950/50 text-sky-300 font-semibold" data-ltype="slingshot">
+              橡皮筋彈射
+            </button>
+            <button class="launcher-type-btn p-2 rounded-xl border border-slate-800 bg-slate-900 text-slate-400" data-ltype="deck">
+              平板升降台
+            </button>
+            <button class="launcher-type-btn p-2 rounded-xl border border-slate-800 bg-slate-900 text-slate-400" data-ltype="rail">
+              氣動雙導軌
+            </button>
+          </div>
+        </div>
+
+        <!-- 發射前航向偏角調整 (Heading) -->
+        <div class="p-3 rounded-2xl bg-sky-950/20 border border-sky-500/30 space-y-2">
+          <div class="flex justify-between items-center text-xs">
+            <span class="font-medium text-sky-300 flex items-center gap-1.5">
+              <i data-lucide="compass" class="w-3.5 h-3.5"></i> 360° 全方位發射航向瞄準
+            </span>
+            <span id="heading-val-text" class="font-mono text-sky-400 font-bold">0° (正前/北)</span>
+          </div>
+          <input type="range" id="slider-heading" min="0" max="360" step="1" value="0" class="w-full">
+          <div class="grid grid-cols-4 gap-1 text-[10px]">
+            <button id="btn-head-north" class="py-1 px-1 bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold rounded-lg text-center">0° 正前</button>
+            <button id="btn-head-east" class="py-1 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-center">90° 正右</button>
+            <button id="btn-head-south" class="py-1 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-center">180° 正後</button>
+            <button id="btn-head-west" class="py-1 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-center">270° 正左</button>
+          </div>
+        </div>
+
+        <!-- 彈射器拉伸蓄能 -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between items-center text-xs">
+            <span class="font-medium text-slate-300">橡皮筋拉伸張力 (蓄能)</span>
+            <span id="tension-val-text" class="font-mono text-emerald-400 font-bold">100%</span>
+          </div>
+          <input type="range" id="slider-tension" min="30" max="150" step="5" value="100" class="w-full">
+        </div>
+
+        <!-- 發射台垂直高度 -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between items-center text-xs">
+            <span class="font-medium text-slate-300">發射台高度 (地表基準)</span>
+            <span id="altitude-val-text" class="font-mono text-cyan-400 font-bold">1.6 m</span>
+          </div>
+          <input type="range" id="slider-altitude" min="0.0" max="25.0" step="0.2" value="1.6" class="w-full">
+          <p class="text-[10px] text-slate-500">支援 0.0m 絕對貼齊著陸地表；升降立柱隱匿於甲板底部絕不穿模。</p>
+        </div>
+
+        <!-- 投擲仰角 -->
+        <div class="space-y-1.5">
+          <div class="flex justify-between items-center text-xs">
+            <span class="font-medium text-slate-300">投擲發射仰角 (Pitch)</span>
+            <span id="pitch-val-text" class="font-mono text-amber-400 font-bold">+6°</span>
+          </div>
+          <input type="range" id="slider-pitch" min="-5" max="25" step="1" value="6" class="w-full">
+        </div>
+      </div>
+
+      <!-- 3. 生態環境分頁 -->
+      <div id="tab-biome" class="tab-content space-y-3 hidden">
+        <div class="space-y-2">
+          <!-- 實驗室 -->
+          <button class="biome-card w-full p-3 rounded-2xl border border-sky-500/60 bg-sky-950/40 text-left transition-all relative flex items-center justify-between" data-biome="lab">
+            <div>
+              <div class="font-bold text-xs text-white">高科技風洞實驗室 (Lab)</div>
+              <div class="text-[11px] text-slate-400">1.0G 地球重力 · 乾淨環氧樹脂高光地磚 · 渦輪氣流</div>
+            </div>
+            <div class="biome-check text-sky-400">
+              <i data-lucide="check" class="w-4 h-4"></i>
+            </div>
+          </button>
+
+          <!-- 荒漠 -->
+          <button class="biome-card w-full p-3 rounded-2xl border border-slate-800 bg-slate-900/50 text-left transition-all relative flex items-center justify-between" data-biome="desert">
+            <div>
+              <div class="font-bold text-xs text-white">烈日荒漠 (Desert)</div>
+              <div class="text-[11px] text-slate-400">微型風蝕正弦波浪沙紋地表 · 巨型仙人掌 · 風化疊石</div>
+            </div>
+            <div class="biome-check text-sky-400 hidden">
+              <i data-lucide="check" class="w-4 h-4"></i>
+            </div>
+          </button>
+
+          <!-- 草原 -->
+          <button class="biome-card w-full p-3 rounded-2xl border border-slate-800 bg-slate-900/50 text-left transition-all relative flex items-center justify-between" data-biome="grassland">
+            <div>
+              <div class="font-bold text-xs text-white">高原草甸 (Grassland)</div>
+              <div class="text-[11px] text-slate-400">茂盛草絲泥土質地 · 針葉松樹林群 · 旋轉發電風車</div>
+            </div>
+            <div class="biome-check text-sky-400 hidden">
+              <i data-lucide="check" class="w-4 h-4"></i>
+            </div>
+          </button>
+
+          <!-- 賽博都市 -->
+          <button class="biome-card w-full p-3 rounded-2xl border border-slate-800 bg-slate-900/50 text-left transition-all relative flex items-center justify-between" data-biome="cyber">
+            <div>
+              <div class="font-bold text-xs text-white">賽博霓虹都市 (Cyber City)</div>
+              <div class="text-[11px] text-slate-400">相連大道與車流 · 密集天際摩天大樓群 · 霓虹立交橋</div>
+            </div>
+            <div class="biome-check text-sky-400 hidden">
+              <i data-lucide="check" class="w-4 h-4"></i>
+            </div>
+          </button>
+
+          <!-- 月球基地 -->
+          <button class="biome-card w-full p-3 rounded-2xl border border-slate-800 bg-slate-900/50 text-left transition-all relative flex items-center justify-between" data-biome="moon">
+            <div>
+              <div class="font-bold text-xs text-white">月球隕石坑基地 (Moon)</div>
+              <div class="text-[11px] text-slate-400">1/6 微重力 (1.62m/s²) · 近真空純拋體彈道 · 登月艙與環形山</div>
+            </div>
+            <div class="biome-check text-sky-400 hidden">
+              <i data-lucide="check" class="w-4 h-4"></i>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <!-- 4. 匯入模型分頁 -->
+      <div id="tab-import" class="tab-content space-y-4 hidden">
+        <div class="p-3 rounded-2xl bg-slate-950/50 border border-slate-800 space-y-2">
+          <div class="text-xs font-bold text-white flex items-center gap-1.5">
+            <i data-lucide="upload" class="w-4 h-4 text-emerald-400"></i> 自訂紙飛機 3D 模型
+          </div>
+          <p class="text-[11px] text-slate-400">支援 GLTF/GLB 或 OBJ 格式。自動進行邊界盒對齊與前進向量映射。</p>
+          <input type="file" id="file-plane" accept=".glb,.gltf,.obj" class="hidden">
+          <button onclick="document.getElementById('file-plane').click()" class="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-sky-300 border border-sky-500/30 flex items-center justify-center gap-2 transition-all">
+            <i data-lucide="file-up" class="w-3.5 h-3.5"></i> 選擇飛機檔案 (.glb / .obj)
+          </button>
+        </div>
+
+        <div class="p-3 rounded-2xl bg-slate-950/50 border border-slate-800 space-y-2">
+          <div class="text-xs font-bold text-white flex items-center gap-1.5">
+            <i data-lucide="image" class="w-4 h-4 text-cyan-400"></i> 匯入 360° 全景環境或地景
+          </div>
+          <p class="text-[11px] text-slate-400">支援 360 等距柱狀全景圖 (.jpg/.png) 或 3D 地形 (.glb)。</p>
+          <input type="file" id="file-env" accept=".jpg,.png,.jpeg,.glb" class="hidden">
+          <button onclick="document.getElementById('file-env').click()" class="w-full py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-cyan-300 border border-cyan-500/30 flex items-center justify-center gap-2 transition-all">
+            <i data-lucide="globe" class="w-3.5 h-3.5"></i> 上傳全景環境圖 / 地景
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 側邊欄底部發射按鈕 -->
+    <div class="p-3 border-t border-slate-800/80 bg-slate-950/60 flex items-center gap-2">
+      <button id="btn-launch-main" class="flex-1 py-3 rounded-2xl text-xs font-bold text-white bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 shadow-xl shadow-emerald-500/25 flex items-center justify-center gap-2 transition-all">
+        <i data-lucide="send" class="w-4 h-4"></i> 發射紙飛機 (SPACE)
+      </button>
+      <button id="btn-reset-main" class="p-3 rounded-2xl text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition-all" title="重置飛機">
+        <i data-lucide="rotate-ccw" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </aside>
+
+  <!-- 右上角飛行即時遙測儀 HUD -->
+  <aside class="absolute top-20 right-4 z-20 pointer-events-none w-72 glass-panel p-4 rounded-3xl shadow-2xl border border-sky-500/20 space-y-3">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <i data-lucide="activity" class="w-4 h-4 text-emerald-400"></i>
+        <h3 class="text-xs font-bold tracking-wider text-slate-200">飛行即時遙測儀</h3>
+      </div>
+      <span id="hud-flight-state" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono">待命</span>
+    </div>
+
+    <div class="grid grid-cols-2 gap-2 text-xs font-mono">
+      <div class="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800">
+        <div class="text-[10px] text-slate-400 font-sans">前向速度 (V)</div>
+        <div id="hud-speed" class="text-sm font-bold text-emerald-400 mt-0.5">0.0 m/s</div>
+      </div>
+      <div class="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800">
+        <div class="text-[10px] text-slate-400 font-sans">飛行高度 (Alt)</div>
+        <div id="hud-altitude" class="text-sm font-bold text-sky-400 mt-0.5">1.6 m</div>
+      </div>
+      <div class="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800">
+        <div class="text-[10px] text-slate-400 font-sans">滑翔航程 (Dist)</div>
+        <div id="hud-distance" class="text-sm font-bold text-amber-400 mt-0.5">0.0 m</div>
+      </div>
+      <div class="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800">
+        <div class="text-[10px] text-slate-400 font-sans">迎風攻角 (AoA)</div>
+        <div id="hud-aoa" class="text-sm font-bold text-cyan-400 mt-0.5">+0.0°</div>
+      </div>
+    </div>
+
+    <div class="flex items-center justify-between text-[11px] pt-1 text-slate-400 border-t border-slate-800/80">
+      <span>空氣動力滑降比 (L/D):</span>
+      <span id="hud-ld-ratio" class="font-mono text-white font-bold">0.0 : 1</span>
+    </div>
+  </aside>
+
+  <!-- 發射前航向瞄準浮動儀 (發射時自動隱藏) -->
+  <div id="aiming-hud" class="absolute bottom-6 right-6 z-20 pointer-events-auto glass-panel px-4 py-3 rounded-2xl shadow-2xl border border-sky-500/30 flex items-center gap-3 transition-opacity duration-300">
+    <div id="compass-needle-icon" class="w-9 h-9 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center transition-transform duration-200">
+      <i data-lucide="compass" class="w-5 h-5"></i>
+    </div>
+    <div class="space-y-1.5">
+      <div class="flex items-center justify-between gap-3 text-xs font-bold text-white">
+        <span class="flex items-center gap-1">360° 發射航向瞄準</span>
+        <span id="quick-heading-display" class="text-sky-400 font-mono">0° (正前/北)</span>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <input type="range" id="quick-slider-heading" min="0" max="360" step="1" value="0" class="w-32 h-1.5">
+        <div class="flex items-center gap-1">
+          <button id="quick-aim-sub45" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300" title="-45°">-45°</button>
+          <button id="quick-aim-sub15" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300" title="-15°">-15°</button>
+          <button id="quick-aim-center" class="px-2 py-0.5 rounded bg-sky-600/70 hover:bg-sky-500 text-[10px] text-white font-bold" title="重設正前 0°">0°</button>
+          <button id="quick-aim-add15" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300" title="+15°">+15°</button>
+          <button id="quick-aim-add45" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300" title="+45°">+45°</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ==========================================================================
+       1. 全域狀態管理與空氣動力學規格
+       ========================================================================== */
+    const State = {
+      // 幾何外型規格
+      planeType: 'dart',
+      elevonAngle: 2,       // 升降尾舵偏角 (deg)
+      dihedralAngle: 6,     // 機翼上反角 (deg)
+      wingletAngle: 25,     // 翼尖小翼角度 (deg)
+      paperRoughness: 0.65, // PBR 粗糙度
+      planeScale: 1.2,      // 顯示縮放
+      clipCount: 0,         // 迴紋針數量 (0~5)
+
+      // 發射機構規格
+      enableLauncher: true,
+      launcherType: 'slingshot',
+      elasticTension: 1.0,  // 30% ~ 150%
+      initialAltitude: 1.6, // m
+      launchPitch: 6,       // deg
+      launchHeading: 0,     // 發射航向角 (deg): 0 ~ 360° 全方位
+      launchSpeed: 14.0,    // 基準投擲速度 (m/s)
+
+      // 環境與生態規格
+      biome: 'lab',
+      gravity: -9.81,
+      airDensity: 1.225,
+
+      // 飛行動力學狀態
+      isFlying: false,
+      isLanded: false,
+      pos: new THREE.Vector3(0, 1.6, 0),
+      vel: new THREE.Vector3(0, 0, 0),
+      glideSpeed: 14.0,
+      flightSlope: 0,
+      bodyPitchAngle: 0,
+      yawAngle: 0,          // 航向角
+      rollAngle: 0,
+      flightDistance: 0,
+      maxAlt: 1.6,
+      flightTime: 0,
+
+      // 鏡頭模式
+      camMode: 'chase', // 'chase', 'side', 'orbit'
+      isCloseUp: false,
+      targetCamPos: new THREE.Vector3(0, 2.5, 4.5),
+      targetLookAt: new THREE.Vector3(0, 1.6, 0)
+    };
+
+    /* ==========================================================================
+       2. Web Audio API 音效合成引擎 (純數學合成，絕無外部載入依賴)
+       ========================================================================== */
+    const AudioEngine = {
+      ctx: null,
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          if (AudioContext) this.ctx = new AudioContext();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      },
+      playLaunchWhoosh() {
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          const filter = this.ctx.createBiquadFilter();
+
+          osc.type = 'sine';
+          filter.type = 'lowpass';
+          filter.frequency.setValueAtTime(450, this.ctx.currentTime);
+          filter.frequency.exponentialRampToValueAtTime(1400, this.ctx.currentTime + 0.15);
+          filter.frequency.exponentialRampToValueAtTime(200, this.ctx.currentTime + 0.45);
+
+          gain.gain.setValueAtTime(0.01, this.ctx.currentTime);
+          gain.gain.linearRampToValueAtTime(0.28, this.ctx.currentTime + 0.1);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5);
+
+          osc.connect(filter);
+          filter.connect(gain);
+          gain.connect(this.ctx.destination);
+
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.5);
+        } catch(e) {}
+      },
+      playTouchdown() {
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(160, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 0.2);
+
+          gain.gain.setValueAtTime(0.2, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.25);
+
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.25);
+        } catch(e) {}
+      },
+      playCollision() {
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(320, this.ctx.currentTime);
+          osc.frequency.exponentialRampToValueAtTime(80, this.ctx.currentTime + 0.3);
+
+          gain.gain.setValueAtTime(0.35, this.ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.35);
+
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start();
+          osc.stop(this.ctx.currentTime + 0.35);
+        } catch(e) {}
+      }
+    };
+
+    /* ==========================================================================
+       3. Three.js 場景、PBR 燈光與渲染管線初始化
+       ========================================================================== */
+    const canvas = document.getElementById('webgl-canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x030712);
+    scene.fog = new THREE.FogExp2(0x030712, 0.002);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 8000);
+    camera.position.set(0, 2.5, 4.5);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.06;
+    controls.maxPolarAngle = Math.PI / 2 - 0.01;
+    controls.minDistance = 0.4;
+    controls.maxDistance = 350;
+    controls.target.set(0, 1.6, 0);
+
+    // 燈光系統
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
+    scene.add(ambientLight);
+
+    const sunLight = new THREE.DirectionalLight(0xfff8ee, 1.5);
+    sunLight.position.set(30, 50, 20);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.camera.near = 1;
+    sunLight.shadow.camera.far = 400;
+    const shadowD = 60;
+    sunLight.shadow.camera.left = -shadowD;
+    sunLight.shadow.camera.right = shadowD;
+    sunLight.shadow.camera.top = shadowD;
+    sunLight.shadow.camera.bottom = -shadowD;
+    sunLight.shadow.bias = -0.0003;
+    scene.add(sunLight);
+
+    const fillLight = new THREE.DirectionalLight(0x38bdf8, 0.45);
+    fillLight.position.set(-25, 20, -30);
+    scene.add(fillLight);
+
+    /* ==========================================================================
+       4. PBR 地表紋理生成器 (Canvas-to-Texture)
+       ========================================================================== */
+    function generateFloorTexture(biome) {
+      const texCanvas = document.createElement('canvas');
+      texCanvas.width = 1024;
+      texCanvas.height = 1024;
+      const ctx = texCanvas.getContext('2d');
+
+      if (biome === 'desert') {
+        // 沙漠正弦波紋
+        ctx.fillStyle = '#b45309';
+        ctx.fillRect(0, 0, 1024, 1024);
+        for (let y = 0; y < 1024; y += 4) {
+          const wave = Math.sin(y * 0.04) * 20;
+          ctx.fillStyle = (y % 8 === 0) ? '#d97706' : '#92400e';
+          ctx.fillRect(0, y + wave, 1024, 2);
+        }
+      } else if (biome === 'grassland') {
+        // 草原草絲與土壤
+        ctx.fillStyle = '#14532d';
+        ctx.fillRect(0, 0, 1024, 1024);
+        for (let i = 0; i < 4000; i++) {
+          const gx = Math.random() * 1024;
+          const gy = Math.random() * 1024;
+          ctx.fillStyle = Math.random() > 0.5 ? '#166534' : '#15803d';
+          ctx.fillRect(gx, gy, 2, 6);
+        }
+      } else if (biome === 'cyber') {
+        // 賽博都市瀝青與電路網格
+        ctx.fillStyle = '#090d16';
+        ctx.fillRect(0, 0, 1024, 1024);
+        ctx.strokeStyle = 'rgba(6, 182, 212, 0.2)';
+        ctx.lineWidth = 1;
+        for (let x = 0; x < 1024; x += 64) {
+          ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 1024); ctx.stroke();
+        }
+        for (let y = 0; y < 1024; y += 64) {
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1024, y); ctx.stroke();
+        }
+      } else if (biome === 'moon') {
+        // 月球玄武岩與微細撞擊坑
+        ctx.fillStyle = '#334155';
+        ctx.fillRect(0, 0, 1024, 1024);
+        for (let i = 0; i < 60; i++) {
+          const cx = Math.random() * 1024;
+          const cy = Math.random() * 1024;
+          const cr = 4 + Math.random() * 18;
+          ctx.beginPath();
+          ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+          ctx.fillStyle = '#1e293b';
+          ctx.fill();
+          ctx.strokeStyle = '#64748b';
+          ctx.stroke();
+        }
+      } else {
+        // 實驗室環氧樹脂地磚
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(0, 0, 1024, 1024);
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+        ctx.lineWidth = 2;
+        for (let x = 0; x <= 1024; x += 128) {
+          ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 1024); ctx.stroke();
+        }
+        for (let y = 0; y <= 1024; y += 128) {
+          ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1024, y); ctx.stroke();
+        }
+      }
+
+      const texture = new THREE.CanvasTexture(texCanvas);
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.set(40, 40);
+      return texture;
+    }
+
+    /* ==========================================================================
+       5. 紙飛機折紙幾何系統 (機頭頂點嚴格指向 -Z 前方)
+       ========================================================================== */
+    const airplaneRoot = new THREE.Group();
+    scene.add(airplaneRoot);
+
+    const paperMat = new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      roughness: State.paperRoughness,
+      metalness: 0.04,
+      side: THREE.DoubleSide
+    });
+
+    let wingLeftGroup = new THREE.Group();
+    let wingRightGroup = new THREE.Group();
+    let elevonLeftMesh = null;
+    let elevonRightMesh = null;
+    let wingletLeftMesh = null;
+    let wingletRightMesh = null;
+    const clipMeshes = [];
+
+    // 發射前青藍色航向瞄準引導虛線
+    const aimLineGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0.05, 0),
+      new THREE.Vector3(0, 0.05, -35)
+    ]);
+    const aimLineMat = new THREE.LineDashedMaterial({
+      color: 0x38bdf8,
+      dashSize: 1.2,
+      gapSize: 0.6,
+      linewidth: 2
+    });
+    const aimLineMesh = new THREE.Line(aimLineGeo, aimLineMat);
+    aimLineMesh.computeLineDistances();
+    scene.add(aimLineMesh);
+
+    function updateAimLine() {
+      aimLineMesh.position.set(0, 0.04, 0);
+      aimLineMesh.rotation.y = State.yawAngle;
+      aimLineMesh.visible = !State.isFlying;
+    }
+
+    function buildOrigamiModel() {
+      while (airplaneRoot.children.length > 0) {
+        airplaneRoot.remove(airplaneRoot.children[0]);
+      }
+      clipMeshes.length = 0;
+
+      const scale = State.planeScale;
+      const modelGroup = new THREE.Group();
+
+      wingLeftGroup = new THREE.Group();
+      wingRightGroup = new THREE.Group();
+
+      const keelGeo = new THREE.BufferGeometry();
+      // 機頭尖端在 -Z，機尾在 +Z
+      const keelVertices = new Float32Array([
+        0, 0, -0.48 * scale,
+        0, -0.09 * scale, 0.15 * scale,
+        0, 0, 0.18 * scale
+      ]);
+      keelGeo.setAttribute('position', new THREE.BufferAttribute(keelVertices, 3));
+      keelGeo.computeVertexNormals();
+      const keelMesh = new THREE.Mesh(keelGeo, paperMat);
+      keelMesh.castShadow = true;
+      modelGroup.add(keelMesh);
+
+      // 左機翼
+      const wingLGeo = new THREE.BufferGeometry();
+      const wingLVerts = new Float32Array([
+        0, 0, -0.48 * scale,
+        -0.34 * scale, 0, 0.12 * scale,
+        0, 0, 0.16 * scale
+      ]);
+      wingLGeo.setAttribute('position', new THREE.BufferAttribute(wingLVerts, 3));
+      wingLGeo.computeVertexNormals();
+      const wingLMesh = new THREE.Mesh(wingLGeo, paperMat);
+      wingLMesh.castShadow = true;
+      wingLeftGroup.add(wingLMesh);
+
+      // 右機翼
+      const wingRGeo = new THREE.BufferGeometry();
+      const wingRVerts = new Float32Array([
+        0, 0, -0.48 * scale,
+        0, 0, 0.16 * scale,
+        0.34 * scale, 0, 0.12 * scale
+      ]);
+      wingRGeo.setAttribute('position', new THREE.BufferAttribute(wingRVerts, 3));
+      wingRGeo.computeVertexNormals();
+      const wingRMesh = new THREE.Mesh(wingRGeo, paperMat);
+      wingRMesh.castShadow = true;
+      wingRightGroup.add(wingRMesh);
+
+      // 升降尾舵 (Elevons，置於後緣 +Z)
+      const elevonMat = paperMat.clone();
+      const elGeo = new THREE.PlaneGeometry(0.12 * scale, 0.05 * scale);
+
+      elevonLeftMesh = new THREE.Mesh(elGeo, elevonMat);
+      elevonLeftMesh.position.set(-0.18 * scale, 0, 0.15 * scale);
+      elevonLeftMesh.rotation.x = Math.PI / 2;
+      elevonLeftMesh.castShadow = true;
+      wingLeftGroup.add(elevonLeftMesh);
+
+      elevonRightMesh = new THREE.Mesh(elGeo, elevonMat);
+      elevonRightMesh.position.set(0.18 * scale, 0, 0.15 * scale);
+      elevonRightMesh.rotation.x = Math.PI / 2;
+      elevonRightMesh.castShadow = true;
+      wingRightGroup.add(elevonRightMesh);
+
+      // 翼尖小翼 (Winglets)
+      const wletGeo = new THREE.PlaneGeometry(0.08 * scale, 0.06 * scale);
+      wingletLeftMesh = new THREE.Mesh(wletGeo, paperMat);
+      wingletLeftMesh.position.set(-0.34 * scale, 0.03 * scale, 0.12 * scale);
+      wingLeftGroup.add(wingletLeftMesh);
+
+      wingletRightMesh = new THREE.Mesh(wletGeo, paperMat);
+      wingletRightMesh.position.set(0.34 * scale, 0.03 * scale, 0.12 * scale);
+      wingRightGroup.add(wingletRightMesh);
+
+      modelGroup.add(wingLeftGroup);
+      modelGroup.add(wingRightGroup);
+
+      // 機首配重金屬迴紋針 (置於尖端 -Z = -0.45 * scale)
+      const clipMat = new THREE.MeshStandardMaterial({ color: 0xd1d5db, metalness: 0.95, roughness: 0.15 });
+      for (let i = 0; i < 5; i++) {
+        const clip = new THREE.Mesh(new THREE.TorusGeometry(0.018 * scale, 0.0035 * scale, 8, 18), clipMat);
+        clip.rotation.x = Math.PI / 2;
+        clip.position.set(0, -0.015 * scale - (i * 0.005 * scale), -0.44 * scale + (i * 0.012 * scale));
+        clip.visible = i < State.clipCount;
+        modelGroup.add(clip);
+        clipMeshes.push(clip);
+      }
+
+      airplaneRoot.add(modelGroup);
+      applyWingAngles();
+      updateAirplaneClearance();
+    }
+
+    function applyWingAngles() {
+      const dihedralRad = THREE.MathUtils.degToRad(State.dihedralAngle);
+      wingLeftGroup.rotation.z = dihedralRad;
+      wingRightGroup.rotation.z = -dihedralRad;
+
+      const elevonRad = THREE.MathUtils.degToRad(-State.elevonAngle);
+      if (elevonLeftMesh) elevonLeftMesh.rotation.x = Math.PI / 2 + elevonRad;
+      if (elevonRightMesh) elevonRightMesh.rotation.x = Math.PI / 2 + elevonRad;
+
+      const wingletRad = THREE.MathUtils.degToRad(State.wingletAngle);
+      if (wingletLeftMesh) wingletLeftMesh.rotation.z = -wingletRad;
+      if (wingletRightMesh) wingletRightMesh.rotation.z = wingletRad;
+    }
+
+    function computeAirplaneClearanceOffset() {
+      return 0.09 * State.planeScale;
+    }
+
+    function updateAirplaneClearance() {
+      if (!State.isFlying) {
+        State.pos.y = State.initialAltitude + computeAirplaneClearanceOffset();
+        airplaneRoot.position.copy(State.pos);
+        airplaneRoot.rotation.set(0, State.yawAngle, 0);
+      }
+    }
+
+    /* ==========================================================================
+       6. 實體發射機構與橡皮筋彈射器
+       ========================================================================== */
+    const launcherGroup = new THREE.Group();
+    scene.add(launcherGroup);
+
+    let elasticBandMesh = null;
+
+    function buildLauncher() {
+      while (launcherGroup.children.length > 0) {
+        launcherGroup.remove(launcherGroup.children[0]);
+      }
+      elasticBandMesh = null;
+
+      if (!State.enableLauncher) {
+        launcherGroup.visible = false;
+        return;
+      }
+      launcherGroup.visible = true;
+
+      const baseH = State.initialAltitude;
+      const metalMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.85, roughness: 0.25 });
+      const rubberMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.5 });
+
+      if (State.launcherType === 'slingshot') {
+        // Y 型彈射叉架 (指向 -Z 前方)
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, baseH, 12), metalMat);
+        stem.position.set(0, baseH / 2, 0);
+        stem.castShadow = true;
+        launcherGroup.add(stem);
+
+        const forkL = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.5, 12), metalMat);
+        forkL.position.set(-0.25, baseH + 0.22, -0.2);
+        forkL.rotation.z = -0.35;
+        launcherGroup.add(forkL);
+
+        const forkR = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.5, 12), metalMat);
+        forkR.position.set(0.25, baseH + 0.22, -0.2);
+        forkR.rotation.z = 0.35;
+        launcherGroup.add(forkR);
+
+        // 橡皮筋
+        elasticBandMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.02, 0.02), rubberMat);
+        elasticBandMesh.position.set(0, baseH + 0.32, -0.2);
+        launcherGroup.add(elasticBandMesh);
+
+      } else if (State.launcherType === 'deck') {
+        const plate = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.04, 1.2), metalMat);
+        plate.position.set(0, baseH, 0);
+        plate.castShadow = true;
+        launcherGroup.add(plate);
+
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, baseH, 16), metalMat);
+        pillar.position.set(0, baseH / 2, 0);
+        launcherGroup.add(pillar);
+
+      } else {
+        // 氣動雙導軌
+        for (let gx of [-0.15, 0.15]) {
+          const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 1.4, 8), metalMat);
+          rail.rotation.x = Math.PI / 2;
+          rail.position.set(gx, baseH, 0);
+          launcherGroup.add(rail);
+        }
+        const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, baseH, 12), metalMat);
+        stand.position.set(0, baseH / 2, 0);
+        launcherGroup.add(stand);
+      }
+
+      launcherGroup.rotation.y = State.yawAngle;
+    }
+
+    /* ==========================================================================
+       7. 擴建場景、相連道路網絡與密集高樓生態環境
+       ========================================================================== */
+    const biomeGroup = new THREE.Group();
+    scene.add(biomeGroup);
+
+    let groundMesh = null;
+    let runwayMesh = null;
+    const dynamicAnimObjects = [];
+    const collidableObstacles = [];
+
+    function registerObstacle(object3D, radius, height, name = '障礙物') {
+      collidableObstacles.push({
+        obj: object3D,
+        pos: object3D.position,
+        radius: radius,
+        height: height,
+        name: name,
+        wobble: 0
+      });
+    }
+
+    function buildBiomeEnvironment() {
+      while (biomeGroup.children.length > 0) {
+        biomeGroup.remove(biomeGroup.children[0]);
+      }
+      dynamicAnimObjects.length = 0;
+      collidableObstacles.length = 0;
+
+      // 巨型超大地表 (2400m x 2400m)
+      const groundGeo = new THREE.PlaneGeometry(2400, 2400);
+      const floorTex = generateFloorTexture(State.biome);
+      const groundMat = new THREE.MeshStandardMaterial({
+        map: floorTex,
+        roughness: State.biome === 'lab' ? 0.2 : (State.biome === 'cyber' ? 0.35 : 0.9),
+        metalness: State.biome === 'lab' ? 0.1 : (State.biome === 'cyber' ? 0.4 : 0.02)
+      });
+      groundMesh = new THREE.Mesh(groundGeo, groundMat);
+      groundMesh.rotation.x = -Math.PI / 2;
+      groundMesh.receiveShadow = true;
+      biomeGroup.add(groundMesh);
+
+      // 中央高科技長程滑翔跑道 (延伸 1800m)
+      const runwayGeo = new THREE.PlaneGeometry(16, 1800);
+      const runwayMat = new THREE.MeshStandardMaterial({
+        color: State.biome === 'cyber' ? 0x020617 : (State.biome === 'desert' ? 0x78350f : 0x0f172a),
+        roughness: 0.4,
+        metalness: 0.3
+      });
+      runwayMesh = new THREE.Mesh(runwayGeo, runwayMat);
+      runwayMesh.rotation.x = -Math.PI / 2;
+      runwayMesh.position.set(0, 0.02, -850);
+      runwayMesh.receiveShadow = true;
+      biomeGroup.add(runwayMesh);
+
+      // 環境專屬物件分佈
+      if (State.biome === 'lab') {
+        buildLabObjects();
+      } else if (State.biome === 'desert') {
+        buildDesertObjects();
+      } else if (State.biome === 'grassland') {
+        buildGrasslandObjects();
+      } else if (State.biome === 'cyber') {
+        buildCyberCityDense();
+      } else {
+        buildMoonObjects();
+      }
+    }
+
+    // 1. 實驗室專屬物件
+    function buildLabObjects() {
+      for (let i = 0; i < 40; i++) {
+        const side = i % 2 === 0 ? -1 : 1;
+        const x = side * (14 + Math.random() * 25);
+        const z = -20 - i * 38;
+
+        const fanGroup = new THREE.Group();
+        const outerRing = new THREE.Mesh(
+          new THREE.TorusGeometry(3.2, 0.25, 16, 32),
+          new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.8 })
+        );
+        fanGroup.add(outerRing);
+
+        const bladesGroup = new THREE.Group();
+        for (let b = 0; b < 6; b++) {
+          const blade = new THREE.Mesh(
+            new THREE.BoxGeometry(0.4, 2.8, 0.06),
+            new THREE.MeshStandardMaterial({ color: 0x0284c7, metalness: 0.6 })
+          );
+          blade.rotation.z = (b * Math.PI) / 3;
+          blade.position.y = 1.2;
+          bladesGroup.add(blade);
+        }
+        fanGroup.add(bladesGroup);
+        fanGroup.position.set(x, 4.5, z);
+        biomeGroup.add(fanGroup);
+
+        dynamicAnimObjects.push({
+          obj: bladesGroup,
+          axis: 'z',
+          speed: 4.5
+        });
+        registerObstacle(fanGroup, 3.5, 9.0, '風洞渦輪扇葉');
+      }
+    }
+
+    // 2. 荒漠專屬物件
+    function buildDesertObjects() {
+      for (let i = 0; i < 60; i++) {
+        const side = i % 2 === 0 ? -1 : 1;
+        const x = side * (12 + Math.random() * 50);
+        const z = -15 - i * 25;
+
+        const cactusGroup = new THREE.Group();
+        const trunkH = 4 + Math.random() * 4;
+        const cMat = new THREE.MeshStandardMaterial({ color: 0x2d6a4f, roughness: 0.8 });
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, trunkH, 12), cMat);
+        trunk.position.y = trunkH / 2;
+        cactusGroup.add(trunk);
+
+        const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2.0, 10), cMat);
+        arm.position.set(0.8, trunkH * 0.6, 0);
+        arm.rotation.z = Math.PI / 3;
+        cactusGroup.add(arm);
+
+        cactusGroup.position.set(x, 0, z);
+        biomeGroup.add(cactusGroup);
+        registerObstacle(cactusGroup, 1.2, trunkH, '巨型多臂仙人掌');
+      }
+    }
+
+    // 3. 草原專屬物件
+    function buildGrasslandObjects() {
+      for (let i = 0; i < 55; i++) {
+        const side = i % 2 === 0 ? -1 : 1;
+        const x = side * (14 + Math.random() * 45);
+        const z = -20 - i * 28;
+
+        const treeGroup = new THREE.Group();
+        const trunk = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.3, 0.5, 2.5, 10),
+          new THREE.MeshStandardMaterial({ color: 0x5c3a21 })
+        );
+        trunk.position.y = 1.25;
+        treeGroup.add(trunk);
+
+        const leavesMat = new THREE.MeshStandardMaterial({ color: 0x1e5a22, roughness: 0.9 });
+        for (let l = 0; l < 3; l++) {
+          const cone = new THREE.Mesh(new THREE.ConeGeometry(2.2 - l * 0.5, 2.5, 10), leavesMat);
+          cone.position.y = 2.5 + l * 1.6;
+          treeGroup.add(cone);
+        }
+
+        treeGroup.position.set(x, 0, z);
+        biomeGroup.add(treeGroup);
+        registerObstacle(treeGroup, 2.0, 7.5, '高原雪松針葉樹');
+      }
+    }
+
+    // 4. 賽博都市：相連貫穿大道、穿梭車流與極度密集摩天大樓群
+    function buildCyberCityDense() {
+      const roadMat = new THREE.MeshStandardMaterial({ color: 0x0b0f19, roughness: 0.35, metalness: 0.6 });
+      const curbNeonL = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
+      const curbNeonR = new THREE.MeshBasicMaterial({ color: 0xec4899 });
+      const dashMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
+
+      // 航道兩側長達 750 米、連貫不中斷的都會主幹道 (Continuous Main Avenues)
+      [-22, 22].forEach((roadX) => {
+        const road = new THREE.Mesh(new THREE.PlaneGeometry(8, 750), roadMat);
+        road.rotation.x = -Math.PI / 2;
+        road.position.set(roadX, 0.03, -375);
+        biomeGroup.add(road);
+
+        // 發光霓虹路緣
+        const curbL = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 750), curbNeonL);
+        curbL.position.set(roadX - 4, 0.08, -375);
+        biomeGroup.add(curbL);
+
+        const curbR = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 750), curbNeonR);
+        curbR.position.set(roadX + 4, 0.08, -375);
+        biomeGroup.add(curbR);
+
+        // 中央連續虛線
+        for (let z = -20; z > -740; z -= 14) {
+          const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 7), dashMat);
+          dash.rotation.x = -Math.PI / 2;
+          dash.position.set(roadX, 0.04, z);
+          biomeGroup.add(dash);
+        }
+      });
+
+      // 橫向跨街高架立交天橋 (Skybridges)
+      for (let bz = -80; bz > -700; bz -= 130) {
+        const bridgeGroup = new THREE.Group();
+        const bridgeDeck = new THREE.Mesh(
+          new THREE.BoxGeometry(70, 0.6, 6),
+          new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.85, roughness: 0.25 })
+        );
+        bridgeDeck.position.set(0, 8.5, bz);
+        bridgeGroup.add(bridgeDeck);
+
+        // 橋側霓虹光帶
+        const bLight = new THREE.Mesh(new THREE.BoxGeometry(70, 0.2, 0.1), curbNeonL);
+        bLight.position.set(0, 8.9, bz - 3);
+        bridgeGroup.add(bLight);
+
+        // 兩側巨型支撐橋墩
+        for (let px of [-28, 28]) {
+          const pier = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.6, 0.8, 8.5, 12),
+            new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.9 })
+          );
+          pier.position.set(px, 4.25, bz);
+          bridgeGroup.add(pier);
+        }
+
+        biomeGroup.add(bridgeGroup);
+        registerObstacle(bridgeGroup, 4.0, 9.5, '跨街空中立交天橋');
+      }
+
+      // 道路動態車流 (持續循環行駛的跑車與懸浮飛車)
+      const carColors = [0xef4444, 0x06b6d4, 0x8b5cf6, 0xf59e0b, 0x10b981];
+      for (let c = 0; c < 24; c++) {
+        const isLeftRoad = c % 2 === 0;
+        const roadX = isLeftRoad ? -22 : 22;
+        const laneOffset = (c % 4 < 2) ? -1.8 : 1.8;
+        const startZ = -30 - c * 28;
+        const speed = (isLeftRoad ? -1 : 1) * (18 + (c % 5) * 4);
+
+        const carGroup = new THREE.Group();
+        const col = carColors[c % carColors.length];
+        const carMat = new THREE.MeshStandardMaterial({ color: col, metalness: 0.9, roughness: 0.15 });
+
+        // 車身
+        const carBody = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.65, 3.8), carMat);
+        carBody.position.y = 0.5;
+        carGroup.add(carBody);
+
+        // 車頂玻璃駕駛艙
+        const cabin = new THREE.Mesh(
+          new THREE.BoxGeometry(1.3, 0.45, 1.8),
+          new THREE.MeshStandardMaterial({ color: 0x030712, roughness: 0.1 })
+        );
+        cabin.position.set(0, 0.9, -0.2);
+        carGroup.add(cabin);
+
+        // 前大燈與尾燈
+        const headL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.15, 0.1), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+        headL.position.set(-0.6, 0.45, -1.9);
+        const headR = headL.clone();
+        headR.position.x = 0.6;
+        carGroup.add(headL); carGroup.add(headR);
+
+        const tailL = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.1), new THREE.MeshBasicMaterial({ color: 0xff0055 }));
+        tailL.position.set(-0.6, 0.45, 1.9);
+        const tailR = tailL.clone();
+        tailR.position.x = 0.6;
+        carGroup.add(tailL); carGroup.add(tailR);
+
+        carGroup.position.set(roadX + laneOffset, 0, startZ);
+        if (isLeftRoad) carGroup.rotation.y = Math.PI; // 對向車道
+
+        dynamicAnimObjects.push({
+          obj: carGroup,
+          axis: 'custom_car',
+          update: (dt) => {
+            carGroup.position.z += speed * dt;
+            if (carGroup.position.z < -740) carGroup.position.z = -20;
+            if (carGroup.position.z > -20) carGroup.position.z = -740;
+          }
+        });
+
+        biomeGroup.add(carGroup);
+        registerObstacle(carGroup, 1.6, 1.8, '都會巡航車輛');
+      }
+
+      // 極度密集且高聳的摩天大樓群 (Densely Packed Cyber Skyscrapers)
+      const towerMat = new THREE.MeshStandardMaterial({ color: 0x0a101f, metalness: 0.92, roughness: 0.2 });
+      const windowMats = [
+        new THREE.MeshBasicMaterial({ color: 0x06b6d4 }),
+        new THREE.MeshBasicMaterial({ color: 0xec4899 }),
+        new THREE.MeshBasicMaterial({ color: 0x3b82f6 })
+      ];
+
+      // 沿航道兩側有機密集排布 80 棟摩天高樓
+      for (let i = 0; i < 80; i++) {
+        const side = i % 2 === 0 ? -1 : 1;
+        // 內側樓宇緊挨道路 (30m~42m)，外側超級巨塔 (48m~90m) 形成震撼的建築峽谷
+        const layer = (i % 4);
+        const bX = side * (32 + layer * 14 + (Math.random() - 0.5) * 6);
+        const bZ = -15 - i * 9.0;
+
+        const towerGroup = new THREE.Group();
+        const baseH = 25 + Math.random() * 55 + (layer * 12);
+        const bW = 10 + Math.random() * 8;
+        const bD = 10 + Math.random() * 8;
+
+        // 主樓體
+        const body = new THREE.Mesh(new THREE.BoxGeometry(bW, baseH, bD), towerMat);
+        body.position.y = baseH / 2;
+        body.castShadow = true;
+        body.receiveShadow = true;
+        towerGroup.add(body);
+
+        // 退縮式頂層天際塔 (Tiered Roof)
+        const roofH = 8 + Math.random() * 12;
+        const roof = new THREE.Mesh(new THREE.BoxGeometry(bW * 0.65, roofH, bD * 0.65), towerMat);
+        roof.position.y = baseH + roofH / 2;
+        towerGroup.add(roof);
+
+        // 頂樓通訊發射避雷針
+        const spire = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.1, 0.4, 12, 8),
+          new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.95 })
+        );
+        spire.position.y = baseH + roofH + 6;
+        towerGroup.add(spire);
+
+        // 避雷針頂部紅色航空警示信標
+        const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 8), new THREE.MeshBasicMaterial({ color: 0xff0033 }));
+        beacon.position.y = baseH + roofH + 12;
+        towerGroup.add(beacon);
+
+        // 外牆縱向發光霓虹窗格飾條
+        const winMat = windowMats[i % windowMats.length];
+        for (let s of [-bW / 2 - 0.05, bW / 2 + 0.05]) {
+          const winStrip = new THREE.Mesh(new THREE.BoxGeometry(0.1, baseH * 0.75, 0.6), winMat);
+          winStrip.position.set(s, baseH * 0.5, 0);
+          towerGroup.add(winStrip);
+        }
+
+        towerGroup.position.set(bX, 0, bZ);
+        biomeGroup.add(towerGroup);
+        registerObstacle(towerGroup, Math.max(bW, bD) * 0.65, baseH + roofH + 12, '賽博摩天高樓大廈');
+      }
+    }
+
+    // 5. 月球基地專屬物件
+    function buildMoonObjects() {
+      for (let i = 0; i < 40; i++) {
+        const side = i % 2 === 0 ? -1 : 1;
+        const x = side * (16 + Math.random() * 45);
+        const z = -20 - i * 35;
+
+        const landerGroup = new THREE.Group();
+        const goldMat = new THREE.MeshStandardMaterial({ color: 0xeab308, metalness: 0.9, roughness: 0.2 });
+        const core = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.8, 2.2, 8), goldMat);
+        core.position.y = 2.0;
+        landerGroup.add(core);
+
+        const legMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8 });
+        for (let a = 0; a < 4; a++) {
+          const angle = (a * Math.PI) / 2;
+          const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.5, 8), legMat);
+          leg.position.set(Math.cos(angle) * 1.5, 1.1, Math.sin(angle) * 1.5);
+          leg.rotation.z = Math.cos(angle) * 0.45;
+          leg.rotation.x = Math.sin(angle) * 0.45;
+          landerGroup.add(leg);
+        }
+
+        landerGroup.position.set(x, 0, z);
+        biomeGroup.add(landerGroup);
+        registerObstacle(landerGroup, 2.5, 3.5, '阿波羅登月著陸艙');
+      }
+    }
+
+    /* ==========================================================================
+       8. 撞擊物理、粒子碎片與障礙物互動
+       ========================================================================== */
+    const impactParticles = [];
+    const pGeo = new THREE.BufferGeometry();
+    const pCount = 50;
+    const pPositions = new Float32Array(pCount * 3);
+    pGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
+    const pMat = new THREE.PointsMaterial({ color: 0xfacc15, size: 0.15, transparent: true, opacity: 0 });
+    const pPoints = new THREE.Points(pGeo, pMat);
+    scene.add(pPoints);
+
+    function triggerImpactFX(impactPoint) {
+      AudioEngine.playCollision();
+      pMat.opacity = 1.0;
+      for (let i = 0; i < pCount; i++) {
+        pPositions[i * 3 + 0] = impactPoint.x;
+        pPositions[i * 3 + 1] = impactPoint.y;
+        pPositions[i * 3 + 2] = impactPoint.z;
+        impactParticles[i] = {
+          vx: (Math.random() - 0.5) * 12,
+          vy: Math.random() * 8 + 2,
+          vz: (Math.random() - 0.5) * 12,
+          life: 1.0
+        };
+      }
+      pGeo.attributes.position.needsUpdate = true;
+    }
+
+    function checkObstacleCollisions() {
+      if (!State.isFlying || State.isLanded) return;
+      const planePos = State.pos;
+
+      for (let i = 0; i < collidableObstacles.length; i++) {
+        const obs = collidableObstacles[i];
+        const dx = planePos.x - obs.pos.x;
+        const dz = planePos.z - obs.pos.z;
+        const distHoriz = Math.hypot(dx, dz);
+
+        if (distHoriz < obs.radius + 0.35 && planePos.y < obs.height + 0.2) {
+          // 發生撞擊！
+          triggerImpactFX(planePos);
+
+          // 物理彈開反應
+          State.vel.x = -State.vel.x * 0.45 + (dx / (distHoriz || 1)) * 3.5;
+          State.vel.z = -State.vel.z * 0.25;
+          State.vel.y = -Math.abs(State.vel.y) - 1.5;
+          State.glideSpeed *= 0.35;
+
+          // 物體受擊晃動反饋 (Wobble)
+          obs.wobble = 0.35;
+
+          document.getElementById('status-indicator').textContent = `💥 撞擊「${obs.name}」！受阻彈開`;
+          document.getElementById('status-indicator').className = 'text-xs text-rose-400 font-bold animate-pulse';
+          break;
+        }
+      }
+    }
+
+    /* ==========================================================================
+       9. 發射控制與超平穩物理推進引擎 (消除沉頭與海豚跳抖動)
+       ========================================================================== */
+    function launchAirplane() {
+      if (State.isFlying) return;
+      AudioEngine.playLaunchWhoosh();
+
+      // 隱藏發射前瞄準面板
+      const aimHud = document.getElementById('aiming-hud');
+      if (aimHud) aimHud.style.opacity = '0';
+
+      // 橡皮筋彈射動畫
+      if (State.enableLauncher && State.launcherType === 'slingshot' && elasticBandMesh) {
+        elasticBandMesh.scale.set(0.1, 1, 0.1);
+        setTimeout(() => {
+          if (elasticBandMesh) elasticBandMesh.scale.set(1, 1, 1);
+        }, 180);
+      }
+
+      State.isFlying = true;
+      State.isLanded = false;
+      State.flightTime = 0;
+      State.flightDistance = 0;
+      State.maxAlt = State.pos.y;
+      State.isCloseUp = false;
+
+      if (State.camMode !== 'side') {
+        switchCamMode('chase');
+      }
+
+      // 初始速度與航向設置 (嚴格朝向 -Z 前進)
+      let initialV = State.launchSpeed;
+      if (State.enableLauncher && State.launcherType === 'slingshot') {
+        initialV += State.elasticTension * 6.0;
+      }
+      State.glideSpeed = initialV;
+
+      const pitchRad = THREE.MathUtils.degToRad(State.launchPitch);
+      State.flightSlope = pitchRad;
+      State.bodyPitchAngle = pitchRad;
+
+      // 速度向量分解
+      const forwardH = Math.cos(pitchRad) * initialV;
+      State.vel.set(
+        Math.sin(State.yawAngle) * forwardH,
+        Math.sin(pitchRad) * initialV,
+        -Math.cos(State.yawAngle) * forwardH
+      );
+
+      document.getElementById('hud-flight-state').textContent = '飛行中';
+      document.getElementById('hud-flight-state').className = 'text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-mono font-bold';
+      document.getElementById('status-indicator').textContent = '飛行進行中 | 高速長程滑翔中';
+      document.getElementById('status-indicator').className = 'text-xs text-slate-400';
+    }
+
+    function resetAirplane() {
+      State.isFlying = false;
+      State.isLanded = false;
+      State.flightTime = 0;
+      State.flightDistance = 0;
+      State.rollAngle = 0;
+
+      // 重新顯示瞄準儀
+      const aimHud = document.getElementById('aiming-hud');
+      if (aimHud) aimHud.style.opacity = '1';
+
+      updateAirplaneClearance();
+      updateAimLine();
+
+      document.getElementById('hud-flight-state').textContent = '待命';
+      document.getElementById('hud-flight-state').className = 'text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono';
+      document.getElementById('status-indicator').textContent = '停泊發射台上 | 待命發射';
+      document.getElementById('status-indicator').className = 'text-xs text-slate-400';
+
+      updateTelemetryHUD();
+    }
+
+    function touchdown() {
+      if (State.isLanded) return;
+      State.isFlying = false;
+      State.isLanded = true;
+      State.vel.set(0, 0, 0);
+      AudioEngine.playTouchdown();
+
+      // 貼平地面高度
+      State.pos.y = computeAirplaneClearanceOffset();
+      airplaneRoot.position.y = State.pos.y;
+
+      document.getElementById('hud-flight-state').textContent = '已著陸';
+      document.getElementById('hud-flight-state').className = 'text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-mono font-bold';
+      document.getElementById('status-indicator').textContent = `著陸完成 | 航程: ${State.flightDistance.toFixed(1)}m | 最高高度: ${State.maxAlt.toFixed(2)}m`;
+    }
+
+    function updateFlightPhysics(dt) {
+      if (!State.isFlying || State.isLanded) return;
+      const step = Math.min(Math.max(dt, 0.001), 0.04);
+      State.flightTime += step;
+
+      // 1. 月球純真空拋體彈道 (Ballistic Trajectory)
+      if (State.biome === 'moon') {
+        State.vel.y += State.gravity * step;
+        State.pos.addScaledVector(State.vel, step);
+        State.flightDistance = Math.hypot(State.pos.x, State.pos.z);
+        if (State.pos.y > State.maxAlt) State.maxAlt = State.pos.y;
+
+        airplaneRoot.position.copy(State.pos);
+        airplaneRoot.rotation.set(-State.flightSlope, State.yawAngle, 0, 'YXZ');
+
+        const floorH = computeAirplaneClearanceOffset();
+        if (State.pos.y <= floorH) {
+          State.pos.y = floorH;
+          touchdown();
+        }
+        return;
+      }
+
+      // 2. 地球大氣滑翔極曲線 (平衡滑降動力學，徹底杜絕上下顛簸與沉頭)
+      const baseLD = State.planeType === 'suzanne' ? 12.0 : (State.planeType === 'dart' ? 10.5 : 8.0);
+      const elevonEffect = THREE.MathUtils.clamp(State.elevonAngle * 0.15, -0.6, 0.9);
+      const clipPen = State.clipCount * 0.08;
+      const targetLD = THREE.MathUtils.clamp(baseLD + elevonEffect - clipPen, 4.5, 14.5);
+
+      // 平滑自然的滑降角
+      const steadyGlideSlope = -Math.atan(1.0 / targetLD);
+
+      // 起飛平滑過渡 (前 0.75 秒保持出手仰角平滑切換，絕不向下沉頭)
+      const launchDuration = 0.75;
+      if (State.flightTime < launchDuration) {
+        const t = State.flightTime / launchDuration;
+        const ease = t * t * (3 - 2 * t);
+        const startRad = THREE.MathUtils.degToRad(State.launchPitch);
+        State.flightSlope = THREE.MathUtils.lerp(startRad, steadyGlideSlope, ease);
+      } else {
+        State.flightSlope = THREE.MathUtils.lerp(State.flightSlope, steadyGlideSlope, step * 4.0);
+      }
+
+      // 空氣阻力平緩衰減速度
+      const dragFactor = (1.0 / targetLD) * 0.65;
+      State.glideSpeed = Math.max(3.2, State.glideSpeed - dragFactor * 9.81 * step);
+
+      // 速度向量更新
+      const forwardH = Math.cos(State.flightSlope) * State.glideSpeed;
+      State.vel.x = Math.sin(State.yawAngle) * forwardH;
+      State.vel.z = -Math.cos(State.yawAngle) * forwardH;
+      State.vel.y = Math.sin(State.flightSlope) * State.glideSpeed;
+
+      // 地面氣墊效應 (Ground Effect)
+      if (State.pos.y < 0.65) {
+        State.vel.y *= 0.45;
+      }
+
+      State.pos.addScaledVector(State.vel, step);
+      State.flightDistance = Math.hypot(State.pos.x, State.pos.z);
+      if (State.pos.y > State.maxAlt) State.maxAlt = State.pos.y;
+
+      // 飛機姿態平滑對齊
+      State.bodyPitchAngle = State.flightSlope;
+      airplaneRoot.position.copy(State.pos);
+      airplaneRoot.rotation.set(-State.bodyPitchAngle, State.yawAngle, State.rollAngle, 'YXZ');
+
+      // 著陸判斷
+      const groundFloor = computeAirplaneClearanceOffset();
+      if (State.pos.y <= groundFloor) {
+        State.pos.y = groundFloor;
+        touchdown();
+      }
+
+      // 障礙物碰撞檢測
+      checkObstacleCollisions();
+    }
+
+    function updateTelemetryHUD() {
+      const speed = State.vel.length();
+      document.getElementById('hud-speed').textContent = speed.toFixed(1) + ' m/s';
+      document.getElementById('hud-altitude').textContent = Math.max(0, State.pos.y).toFixed(1) + ' m';
+      document.getElementById('hud-distance').textContent = State.flightDistance.toFixed(1) + ' m';
+
+      if (State.biome === 'moon') {
+        document.getElementById('hud-aoa').textContent = '真空無攻角';
+        document.getElementById('hud-ld-ratio').textContent = '0.0 (真空)';
+      } else {
+        const aoaDeg = THREE.MathUtils.radToDeg(State.bodyPitchAngle - State.flightSlope);
+        document.getElementById('hud-aoa').textContent = (aoaDeg >= 0 ? '+' : '') + aoaDeg.toFixed(1) + '°';
+        const ld = Math.abs(State.vel.y) > 0.05 ? Math.min(20, Math.hypot(State.vel.x, State.vel.z) / Math.abs(State.vel.y)) : 0;
+        document.getElementById('hud-ld-ratio').textContent = ld.toFixed(1) + ' : 1';
+      }
+    }
+
+    /* ==========================================================================
+       10. 相機導演與平滑視角跟隨系統 (消除回彈與抽搐)
+       ========================================================================== */
+    function switchCamMode(mode) {
+      State.camMode = mode;
+      State.isCloseUp = false;
+
+      // 更新按鈕外觀
+      ['chase', 'side', 'orbit'].forEach(m => {
+        const btn = document.getElementById(`btn-cam-${m}`);
+        if (!btn) return;
+        if (m === mode) {
+          btn.className = 'px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-sky-600/80 shadow';
+        } else {
+          btn.className = 'px-3 py-1.5 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/80';
+        }
+      });
+    }
+
+    function updateCameraDirector(dt) {
+      if (State.isCloseUp) {
+        camera.position.lerp(State.targetCamPos, 0.08);
+        controls.target.lerp(State.targetLookAt, 0.08);
+        return;
+      }
+
+      if (State.camMode === 'chase') {
+        // 動態追逐視角：平滑緊跟在機身後上方
+        const behindDist = 3.6;
+        const heightOffset = 1.35;
+        const camX = State.pos.x - Math.sin(State.yawAngle) * behindDist;
+        const camZ = State.pos.z + Math.cos(State.yawAngle) * behindDist;
+        const camY = Math.max(0.4, State.pos.y + heightOffset);
+
+        camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.12);
+        controls.target.lerp(new THREE.Vector3(State.pos.x, State.pos.y + 0.3, State.pos.z), 0.14);
+
+      } else if (State.camMode === 'side') {
+        // 側面平行觀測視角
+        const sideDist = 4.8;
+        const camX = State.pos.x + Math.cos(State.yawAngle) * sideDist;
+        const camZ = State.pos.z + Math.sin(State.yawAngle) * sideDist;
+        const camY = Math.max(0.5, State.pos.y + 0.6);
+
+        camera.position.lerp(new THREE.Vector3(camX, camY, camZ), 0.12);
+        controls.target.lerp(State.pos, 0.12);
+
+      } else {
+        // 自由 3D 環繞 (Orbit)：跟隨飛機位置平移，完整保留使用者手動 360 度旋轉
+        if (State.isFlying) {
+          controls.target.lerp(State.pos, 0.12);
+        }
+      }
+    }
+
+    function setCloseUpView(camPos, lookPos) {
+      State.isCloseUp = true;
+      State.targetCamPos.copy(camPos);
+      State.targetLookAt.copy(lookPos);
+    }
+
+    /* ==========================================================================
+       11. UI 事件綁定與互動控制
+       ========================================================================== */
+    function initUI() {
+      // 導航分頁切換
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.tab-btn').forEach(b => {
+            b.classList.remove('text-sky-400', 'border-b-2', 'border-sky-400');
+            b.classList.add('text-slate-400');
+          });
+          btn.classList.add('text-sky-400', 'border-b-2', 'border-sky-400');
+          btn.classList.remove('text-slate-400');
+
+          document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+          const target = document.getElementById(btn.dataset.tab);
+          if (target) target.classList.remove('hidden');
+        });
+      });
+
+      // 機型切換
+      document.querySelectorAll('.plane-type-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.plane-type-btn').forEach(b => {
+            b.className = 'plane-type-btn p-2.5 rounded-xl border border-slate-800 bg-slate-900/60 text-left font-medium text-slate-300 transition-all';
+          });
+          btn.className = 'plane-type-btn p-2.5 rounded-xl border border-sky-500/50 bg-sky-950/40 text-left font-medium text-sky-300 transition-all';
+          State.planeType = btn.dataset.type;
+          buildOrigamiModel();
+        });
+      });
+
+      // 迴紋針數量
+      document.querySelectorAll('.clip-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.clip-btn').forEach(b => {
+            b.className = 'clip-btn flex-1 py-1 rounded-lg border border-slate-800 bg-slate-900 text-slate-400';
+          });
+          btn.className = 'clip-btn flex-1 py-1 rounded-lg border border-amber-500/50 bg-amber-500/20 text-amber-300 font-bold';
+          State.clipCount = parseInt(btn.dataset.count);
+          clipMeshes.forEach((mesh, idx) => {
+            mesh.visible = idx < State.clipCount;
+          });
+          const weightEl = document.getElementById('clip-weight-text');
+          if (weightEl) weightEl.textContent = (State.clipCount * 0.8).toFixed(1) + 'g';
+          const stabEl = document.getElementById('stability-margin-text');
+          if (stabEl) stabEl.textContent = '+' + (11 + State.clipCount * 4) + '%';
+        });
+      });
+
+      // 升降舵滑桿
+      const sliderElevon = document.getElementById('slider-elevon');
+      if (sliderElevon) {
+        sliderElevon.addEventListener('input', (e) => {
+          State.elevonAngle = parseFloat(e.target.value);
+          const txt = document.getElementById('elevon-val-text');
+          if (txt) txt.textContent = (State.elevonAngle >= 0 ? '+' : '') + State.elevonAngle + '°';
+          applyWingAngles();
+        });
+      }
+
+      // 上反角滑桿
+      const sliderDihedral = document.getElementById('slider-dihedral');
+      if (sliderDihedral) {
+        sliderDihedral.addEventListener('input', (e) => {
+          State.dihedralAngle = parseFloat(e.target.value);
+          const txt = document.getElementById('dihedral-val-text');
+          if (txt) txt.textContent = (State.dihedralAngle >= 0 ? '+' : '') + State.dihedralAngle + '°';
+          applyWingAngles();
+        });
+      }
+
+      // 翼尖小翼滑桿
+      const sliderWinglet = document.getElementById('slider-winglet');
+      if (sliderWinglet) {
+        sliderWinglet.addEventListener('input', (e) => {
+          State.wingletAngle = parseFloat(e.target.value);
+          const txt = document.getElementById('winglet-val-text');
+          if (txt) txt.textContent = State.wingletAngle + '°';
+          applyWingAngles();
+        });
+      }
+
+      // 粗糙度滑桿
+      const sliderRoughness = document.getElementById('slider-roughness');
+      if (sliderRoughness) {
+        sliderRoughness.addEventListener('input', (e) => {
+          State.paperRoughness = parseFloat(e.target.value);
+          paperMat.roughness = State.paperRoughness;
+          const txt = document.getElementById('roughness-val-text');
+          if (txt) txt.textContent = State.paperRoughness.toFixed(2);
+        });
+      }
+
+      // 縮放滑桿
+      const sliderScale = document.getElementById('slider-scale');
+      if (sliderScale) {
+        sliderScale.addEventListener('input', (e) => {
+          State.planeScale = parseFloat(e.target.value);
+          const txt = document.getElementById('scale-val-text');
+          if (txt) txt.textContent = State.planeScale.toFixed(1) + 'x';
+          buildOrigamiModel();
+        });
+      }
+
+      // 彈射張力滑桿
+      const sliderTension = document.getElementById('slider-tension');
+      if (sliderTension) {
+        sliderTension.addEventListener('input', (e) => {
+          State.elasticTension = parseFloat(e.target.value) / 100;
+          const txt = document.getElementById('tension-val-text');
+          if (txt) txt.textContent = e.target.value + '%';
+        });
+      }
+
+      // 發射高度滑桿
+      const sliderAltitude = document.getElementById('slider-altitude');
+      if (sliderAltitude) {
+        sliderAltitude.addEventListener('input', (e) => {
+          State.initialAltitude = parseFloat(e.target.value);
+          const txt = document.getElementById('altitude-val-text');
+          if (txt) txt.textContent = State.initialAltitude.toFixed(1) + ' m';
+          buildLauncher();
+          updateAirplaneClearance();
+        });
+      }
+
+      // 仰角滑桿
+      const sliderPitch = document.getElementById('slider-pitch');
+      if (sliderPitch) {
+        sliderPitch.addEventListener('input', (e) => {
+          State.launchPitch = parseFloat(e.target.value);
+          const txt = document.getElementById('pitch-val-text');
+          if (txt) txt.textContent = (State.launchPitch >= 0 ? '+' : '') + State.launchPitch + '°';
+        });
+      }
+
+      // 發射前航向偏角滑桿 (Heading) - 支援 0 ~ 360° 全方位
+      const headingSlider = document.getElementById('slider-heading');
+      const quickHeadingSlider = document.getElementById('quick-slider-heading');
+
+      function formatHeadingText(deg) {
+        deg = ((Math.round(deg) % 360) + 360) % 360;
+        let dir = '正前/北';
+        if (deg > 15 && deg < 75) dir = '東北';
+        else if (deg >= 75 && deg <= 105) dir = '正右/東';
+        else if (deg > 105 && deg < 165) dir = '東南';
+        else if (deg >= 165 && deg <= 195) dir = '正後/南';
+        else if (deg > 195 && deg < 255) dir = '西南';
+        else if (deg >= 255 && deg <= 285) dir = '正左/西';
+        else if (deg > 285 && deg < 345) dir = '西北';
+        return `${deg}° (${dir})`;
+      }
+
+      function setLaunchHeading(deg) {
+        deg = ((deg % 360) + 360) % 360;
+        State.launchHeading = deg;
+        // 在 Three.js 座標系中，0° 朝 -Z(正前)，90° 朝 +X(右)，180° 朝 +Z(後)，270° 朝 -X(左)
+        // 歐拉 Y 軸旋轉：逆時針旋轉為正角度，因此向右(順時針)旋轉 yawAngle 為 -deg
+        State.yawAngle = THREE.MathUtils.degToRad(-deg);
+
+        const headingText = formatHeadingText(deg);
+        const headingValText = document.getElementById('heading-val-text');
+        if (headingValText) headingValText.textContent = headingText;
+        const quickDisplay = document.getElementById('quick-heading-display');
+        if (quickDisplay) quickDisplay.textContent = headingText;
+
+        if (headingSlider) headingSlider.value = deg;
+        if (quickHeadingSlider) quickHeadingSlider.value = deg;
+
+        // 旋轉右下角 HUD 羅盤針圖示
+        const compassIcon = document.getElementById('compass-needle-icon');
+        if (compassIcon) {
+          compassIcon.style.transform = `rotate(${deg}deg)`;
+        }
+
+        launcherGroup.rotation.y = State.yawAngle;
+        updateAirplaneClearance();
+        updateAimLine();
+      }
+
+      // 四方位與步進瞄準按鈕
+      document.getElementById('btn-head-north')?.addEventListener('click', () => setLaunchHeading(0));
+      document.getElementById('btn-head-east')?.addEventListener('click', () => setLaunchHeading(90));
+      document.getElementById('btn-head-south')?.addEventListener('click', () => setLaunchHeading(180));
+      document.getElementById('btn-head-west')?.addEventListener('click', () => setLaunchHeading(270));
+
+      document.getElementById('quick-aim-sub45')?.addEventListener('click', () => setLaunchHeading(State.launchHeading - 45));
+      document.getElementById('quick-aim-sub15')?.addEventListener('click', () => setLaunchHeading(State.launchHeading - 15));
+      document.getElementById('quick-aim-center')?.addEventListener('click', () => setLaunchHeading(0));
+      document.getElementById('quick-aim-add15')?.addEventListener('click', () => setLaunchHeading(State.launchHeading + 15));
+      document.getElementById('quick-aim-add45')?.addEventListener('click', () => setLaunchHeading(State.launchHeading + 45));
+
+      // 發射台開關
+      const toggleLauncher = document.getElementById('toggle-launcher');
+      if (toggleLauncher) {
+        toggleLauncher.addEventListener('change', (e) => {
+          State.enableLauncher = e.target.checked;
+          buildLauncher();
+        });
+      }
+
+      // 發射台類型
+      document.querySelectorAll('.launcher-type-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.launcher-type-btn').forEach(b => {
+            b.className = 'launcher-type-btn p-2 rounded-xl border border-slate-800 bg-slate-900 text-slate-400';
+          });
+          btn.className = 'launcher-type-btn p-2 rounded-xl border border-sky-500 bg-sky-950/50 text-sky-300 font-semibold';
+          State.launcherType = btn.dataset.ltype;
+          buildLauncher();
+        });
+      });
+
+      // 生態環境切換
+      document.querySelectorAll('.biome-card').forEach(card => {
+        card.addEventListener('click', () => {
+          document.querySelectorAll('.biome-card').forEach(c => {
+            c.className = 'biome-card w-full p-3 rounded-2xl border border-slate-800 bg-slate-900/50 text-left transition-all relative flex items-center justify-between';
+            const check = c.querySelector('.biome-check');
+            if (check) check.classList.add('hidden');
+          });
+          card.className = 'biome-card w-full p-3 rounded-2xl border border-sky-500/60 bg-sky-950/40 text-left transition-all relative flex items-center justify-between';
+          const myCheck = card.querySelector('.biome-check');
+          if (myCheck) myCheck.classList.remove('hidden');
+
+          State.biome = card.dataset.biome;
+          if (State.biome === 'moon') {
+            State.gravity = -1.62;
+            State.airDensity = 0.0;
+          } else {
+            State.gravity = -9.81;
+            State.airDensity = 1.225;
+          }
+          buildBiomeEnvironment();
+        });
+      });
+
+      // 視角特寫按鈕
+      document.getElementById('btn-focus-full').addEventListener('click', () => {
+        setCloseUpView(new THREE.Vector3(0, State.pos.y + 0.6, State.pos.z + 1.2), State.pos);
+      });
+      document.getElementById('btn-focus-nose').addEventListener('click', () => {
+        setCloseUpView(new THREE.Vector3(0, State.pos.y + 0.2, State.pos.z - 0.7), new THREE.Vector3(0, State.pos.y, State.pos.z - 0.45));
+      });
+      document.getElementById('btn-focus-tail').addEventListener('click', () => {
+        setCloseUpView(new THREE.Vector3(0, State.pos.y + 0.35, State.pos.z + 0.6), new THREE.Vector3(0, State.pos.y, State.pos.z + 0.15));
+      });
+      document.getElementById('btn-focus-front').addEventListener('click', () => {
+        setCloseUpView(new THREE.Vector3(0, State.pos.y + 0.1, State.pos.z - 1.2), State.pos);
+      });
+      document.getElementById('btn-focus-winglet').addEventListener('click', () => {
+        setCloseUpView(new THREE.Vector3(-0.6, State.pos.y + 0.25, State.pos.z), State.pos);
+      });
+
+      // 骨刀壓痕工具動畫
+      document.getElementById('btn-crease-anim').addEventListener('click', () => {
+        setCloseUpView(new THREE.Vector3(0, State.pos.y + 0.5, State.pos.z + 0.8), State.pos);
+        paperMat.roughness = Math.max(0.15, paperMat.roughness - 0.15);
+        document.getElementById('slider-roughness').value = paperMat.roughness.toFixed(2);
+        document.getElementById('roughness-val-text').textContent = paperMat.roughness.toFixed(2);
+      });
+
+      // 發射與重置
+      document.getElementById('btn-launch-top').addEventListener('click', launchAirplane);
+      document.getElementById('btn-launch-main').addEventListener('click', launchAirplane);
+      document.getElementById('btn-reset-top').addEventListener('click', resetAirplane);
+      document.getElementById('btn-reset-main').addEventListener('click', resetAirplane);
+
+      // 相機模式
+      document.getElementById('btn-cam-chase').addEventListener('click', () => switchCamMode('chase'));
+      document.getElementById('btn-cam-side').addEventListener('click', () => switchCamMode('side'));
+      document.getElementById('btn-cam-orbit').addEventListener('click', () => switchCamMode('orbit'));
+
+      // 空白鍵發射
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') {
+          e.preventDefault();
+          launchAirplane();
+        } else if (e.code === 'KeyR') {
+          resetAirplane();
+        }
+      });
+
+      // 視窗自適應
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    }
+
+    /* ==========================================================================
+       12. 主循環與渲染 Loop
+       ========================================================================== */
+    const clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = clock.getDelta();
+
+      // 物件受擊晃動與動態車流/風扇轉動
+      collidableObstacles.forEach(obs => {
+        if (obs.wobble > 0) {
+          obs.obj.rotation.z = Math.sin(clock.getElapsedTime() * 45) * obs.wobble;
+          obs.wobble = Math.max(0, obs.wobble - dt * 1.5);
+          if (obs.wobble === 0) obs.obj.rotation.z = 0;
+        }
+      });
+
+      dynamicAnimObjects.forEach(anim => {
+        if (anim.update) {
+          anim.update(dt);
+        } else if (anim.axis && anim.speed) {
+          anim.obj.rotation[anim.axis] += anim.speed * dt;
+        }
+      });
+
+      // 撞擊粒子碎片更新
+      if (pMat.opacity > 0) {
+        pMat.opacity = Math.max(0, pMat.opacity - dt * 1.8);
+        for (let i = 0; i < pCount; i++) {
+          pPositions[i * 3 + 0] += impactParticles[i].vx * dt;
+          pPositions[i * 3 + 1] += impactParticles[i].vy * dt;
+          pPositions[i * 3 + 2] += impactParticles[i].vz * dt;
+          impactParticles[i].vy -= 9.8 * dt;
+        }
+        pGeo.attributes.position.needsUpdate = true;
+      }
+
+      // 物理推進與遙測
+      updateFlightPhysics(dt);
+      updateTelemetryHUD();
+
+      // 相機與控制器
+      updateCameraDirector(dt);
+      controls.update();
+
+      renderer.render(scene, camera);
+    }
+
+    window.onload = function () {
+      buildOrigamiModel();
+      buildLauncher();
+      buildBiomeEnvironment();
+      updateAimLine();
+      initUI();
+      lucide.createIcons();
+      animate();
+    };
+  </script>
+</body>
 </html>

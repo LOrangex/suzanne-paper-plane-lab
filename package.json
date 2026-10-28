@@ -9,11 +9,10 @@
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
-    "lucide-react": "latest",
-    "three": "latest",
-    "vite": "7.2.4",
-    "react": "latest",
-    "react-dom": "latest"
+    "vite": "7.2.4"
   },
-  "devDependencies": {}
+  "devDependencies": {},
+  "engines": {
+    "node": ">=20"
+  }
 }
